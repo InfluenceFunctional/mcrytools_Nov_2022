@@ -634,10 +634,10 @@ class Modeller():
                     discriminator.load_state_dict(d_checkpoint['model_state_dict'])
 
                 with torch.no_grad():
-                    d_err_te, d_te_record, g_err_te, g_te_record, test_epoch_stats_dict, time_test = \
-                        self.epoch(config, dataLoader=test_loader, generator=generator, discriminator=discriminator,
-                                   update_gradients=False, record_stats=True, epoch=epoch)  # compute loss on test set
-                    np.save(f'../{config.run_num}_test_epoch_stats_dict', test_epoch_stats_dict)
+                    # d_err_te, d_te_record, g_err_te, g_te_record, test_epoch_stats_dict, time_test = \
+                    #     self.epoch(config, dataLoader=test_loader, generator=generator, discriminator=discriminator,
+                    #                update_gradients=False, record_stats=True, epoch=epoch)  # compute loss on test set
+                    # np.save(f'../{config.run_num}_test_epoch_stats_dict', test_epoch_stats_dict)
 
                     if config.extra_test_set_paths is not None:
                         extra_test_epoch_stats_dict, time_test_ex = \
@@ -2348,8 +2348,9 @@ class Modeller():
         return None
 
     def nice_scoring_plots(self, config):
-        test_epoch_stats_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_test_epoch_stats_dict.npy', allow_pickle=True).item()
-        extra_test_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_extra_test_dict.npy', allow_pickle=True).item()
+        test_epoch_stats_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\discriminator_713_test_epoch_stats_dict.npy', allow_pickle=True).item()
+        #extra_test_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_extra_test_dict.npy', allow_pickle=True).item()
+        extra_test_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\BT_plus_test_reevaluation.npy', allow_pickle=True).item()
 
         tracking_features = test_epoch_stats_dict['tracking features']
         identifiers_list = extra_test_dict['identifiers']
@@ -3178,9 +3179,9 @@ class Modeller():
         S2. Scoring score correlates
         '''
 
-        regression_test_epoch_stats_dict = np.load('C:/Users\mikem\Desktop\CSP_runs/good_regression_test_epoch_stats_dict.npy', allow_pickle=True).item()
-        self.nice_regression_plots(config, regression_test_epoch_stats_dict)
-        del regression_test_epoch_stats_dict
+        #regression_test_epoch_stats_dict = np.load('C:/Users\mikem\Desktop\CSP_runs/good_regression_test_epoch_stats_dict.npy', allow_pickle=True).item()
+        #self.nice_regression_plots(config, regression_test_epoch_stats_dict)
+        #del regression_test_epoch_stats_dict
 
         self.nice_scoring_plots(config)
 
@@ -3306,7 +3307,7 @@ class Modeller():
                 target_full_rdf = extra_test_dict['full rdf'][target_index]
                 target_inter_rdf = extra_test_dict['intermolecular rdf'][target_index]
 
-            if all_identifiers[target] != []:  # record sample data
+            if (all_identifiers[target] != []) and (target_identifiers_inds[target] != []):  # record sample data
                 target_indices = all_identifiers[target]
                 raw_scores = extra_test_dict['scores'][target_indices]
                 scores = softmax_and_score(raw_scores)

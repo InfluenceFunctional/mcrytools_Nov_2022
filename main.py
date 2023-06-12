@@ -78,7 +78,7 @@ def add_args(parser):
     # dataset settings
     parser.add_argument('--target', type=str,
                         default='molecule spherical defect')  # 'rings', 'groups', 'screw', 'inversion','rotoinversion','mirror','rotation','glide', 'crystal system', 'lattice centering', 'spherical', 'planar'(not in Jan17 dataset)
-    parser.add_argument("--dataset_path", type=str, default='C:/Users\mikem\Desktop\CSP_runs\datasets/full_dataset')
+    parser.add_argument("--dataset_path", type=str, default='C:/Users\mikem\crystals\CSP_runs\datasets/full_dataset')
     parser.add_argument('--dataset_length', type=int, default=int(1e3))  # maximum number of items in the dataset before filtration
     parser.add_argument('--feature_richness', type=str, default='minimal')  # atom & molecule feature richness
 
@@ -348,7 +348,7 @@ def add_args(parser):
 
 def process_config(config):
     if config.machine == 'local':
-        config.workdir = 'C:/Users\mikem\Desktop/CSP_runs'  # Working directory
+        config.workdir = 'C:/Users\mikem\crystals/CSP_runs'  # Working directory
     elif config.machine == 'cluster':
         config.workdir = '/scratch/mk8347/csd_runs/'
         config.dataset_path = '/scratch/mk8347/csd_runs/datasets/full_dataset'
@@ -364,7 +364,7 @@ def process_config(config):
         if config.machine == 'cluster':
             config.dataset_path = '/scratch/mk8347/csd_runs/datasets/test_dataset'
         else:
-            config.dataset_path = 'C:/Users\mikem\Desktop\CSP_runs\datasets/test_dataset'
+            config.dataset_path = 'C:/Users\mikem\crystals\CSP_runs\datasets/test_dataset'
 
     return config
 
