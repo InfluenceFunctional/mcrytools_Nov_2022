@@ -12,7 +12,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from coordinate_transformations import coor_trans, cell_vol
 from pyxtal import symmetry
 from ase import Atoms
-import rdkit.Chem as Chem
+#import rdkit.Chem as Chem
 from crystal_builder_tools import *
 from models.generator_models import crystal_generator
 from models.discriminator_models import crystal_discriminator
@@ -27,6 +27,7 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.express as px
 from sklearn.cluster import AgglomerativeClustering
+from constants.atom_properties import ATOM_WEIGHTS, VDW_RADII
 
 
 class Modeller():
@@ -52,12 +53,15 @@ class Modeller():
         if self.config.device == 'cuda':
             backends.cudnn.benchmark = True  # auto-optimizes certain backend processes
 
-        periodicTable = Chem.GetPeriodicTable()
-        self.atom_weights = {}
-        self.vdw_radii = {}
-        for i in range(100):
-            self.atom_weights[i] = periodicTable.GetAtomicWeight(i)
-            self.vdw_radii[i] = periodicTable.GetRvdw(i)
+        # periodicTable = Chem.GetPeriodicTable()
+        # self.atom_weights = {}
+        # self.vdw_radii = {}
+        # for i in range(100):
+        #     self.atom_weights[i] = periodicTable.GetAtomicWeight(i)
+        #     self.vdw_radii[i] = periodicTable.GetRvdw(i)
+
+        self.atom_weights = ATOM_WEIGHTS
+        self.vdw_radii = VDW_RADII
 
         if os.path.exists('symmetry_info.npy'):
             sym_info = np.load('symmetry_info.npy', allow_pickle=True).item()
