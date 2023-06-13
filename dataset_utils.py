@@ -12,6 +12,9 @@ import pandas as pd
 from pyxtal import symmetry
 from dataset_management.dataset_manager import Miner
 
+def get_range_fraction(atomic_numbers, rrange):
+    return np.sum((np.asarray(atomic_numbers) > rrange[0]) * (np.asarray(atomic_numbers) < rrange[1])) / len(atomic_numbers)
+
 
 class BuildDataset:
     """
@@ -188,7 +191,6 @@ class BuildDataset:
         '''
         check for heavy atoms
         '''
-        from dataset_management.molecule_featurizer import get_range_fraction
         znums = [10,18,36,54]
         for znum in znums:
             dataset[f'molecule atom heavier than {znum} fraction'] = np.asarray([get_range_fraction(atom_list, [znum, 200] ) for atom_list in dataset['atom Z']])
