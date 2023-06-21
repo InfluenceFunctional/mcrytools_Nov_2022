@@ -12,7 +12,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from coordinate_transformations import coor_trans, cell_vol
 from pyxtal import symmetry
 from ase import Atoms
-#import rdkit.Chem as Chem
+# import rdkit.Chem as Chem
 from crystal_builder_tools import *
 from models.generator_models import crystal_generator
 from models.discriminator_models import crystal_discriminator
@@ -849,7 +849,7 @@ class Modeller():
             if any((config.train_generator_density, config.train_generator_adversarially, config.train_generator_g2, config.train_generator_packing)):
 
                 adversarial_score, generated_samples, density_loss, density_prediction, density_target, \
-                packing_loss, g2_loss, generated_dist_dict, supercell_examples, similarity_penalty = \
+                    packing_loss, g2_loss, generated_dist_dict, supercell_examples, similarity_penalty = \
                     self.train_generator(generator, discriminator, config, data, i)
 
                 if (supercell_examples is not None) and (i == rand_batch_ind):  # for a random batch in the epoch
@@ -1551,8 +1551,8 @@ class Modeller():
     def params_f_to_c(self, cell_lengths, cell_angles):
         cell_vector_a, cell_vector_b, cell_vector_c = \
             torch.tensor(coor_trans('f_to_c', np.array((1, 0, 0)), cell_lengths, cell_angles)), \
-            torch.tensor(coor_trans('f_to_c', np.array((0, 1, 0)), cell_lengths, cell_angles)), \
-            torch.tensor(coor_trans('f_to_c', np.array((0, 0, 1)), cell_lengths, cell_angles))
+                torch.tensor(coor_trans('f_to_c', np.array((0, 1, 0)), cell_lengths, cell_angles)), \
+                torch.tensor(coor_trans('f_to_c', np.array((0, 0, 1)), cell_lengths, cell_angles))
 
         return np.concatenate((cell_vector_a[None, :], cell_vector_b[None, :], cell_vector_c[None, :]), axis=0), cell_vol(cell_lengths, cell_angles)
 
@@ -1639,7 +1639,7 @@ class Modeller():
 
         else:
             return score_on_real, score_on_fake, fake_supercell_data.cell_params.cpu().detach().numpy(), \
-                   real_distances_dict, fake_pairwise_distances_dict, vdW_penalty(real_supercell_data, self.vdw_radii), vdW_penalty(fake_supercell_data, self.vdw_radii)
+                real_distances_dict, fake_pairwise_distances_dict, vdW_penalty(real_supercell_data, self.vdw_radii), vdW_penalty(fake_supercell_data, self.vdw_radii)
 
     def train_generator(self, generator, discriminator, config, data, i):
         # noise injection
@@ -1702,10 +1702,10 @@ class Modeller():
             return_supercell_data = None
 
         return discriminator_score, generated_samples.cpu().detach().numpy(), \
-               density_loss, density_prediction, \
-               density_target, packing_loss, \
-               g2_loss, dist_dict, \
-               return_supercell_data, similarity_penalty
+            density_loss, density_prediction, \
+            density_target, packing_loss, \
+            g2_loss, dist_dict, \
+            return_supercell_data, similarity_penalty
 
     def regression_loss(self, generator, data):
         predictions = generator(data.to(generator.model.device))[:, 0]
@@ -1842,7 +1842,7 @@ class Modeller():
             supercell_size=self.config.supercell_size,
             graph_convolution_cutoff=self.config.discriminator.graph_convolution_cutoff,
             vdw_radii=self.vdw_radii,
-            preset_minimum = np.quantile(softmax_and_score(test_epoch_stats_dict['discriminator real score']),0.05)
+            preset_minimum=np.quantile(softmax_and_score(test_epoch_stats_dict['discriminator real score']), 0.05)
         )
 
         '''
@@ -2254,11 +2254,10 @@ class Modeller():
         xy2 = np.vstack([target_density, predicted_density])
         z2 = gaussian_kde(xy)(xy)
 
-        fig = make_subplots(rows=2, cols=2, subplot_titles=('a)', 'b)', 'c)', 'd)'),vertical_spacing=0.12)
+        fig = make_subplots(rows=2, cols=2, subplot_titles=('a)', 'b)', 'c)', 'd)'), vertical_spacing=0.12)
         xline = np.linspace(max(min(orig_target), min(orig_prediction)), min(max(orig_target), max(orig_prediction)), 10)
 
-
-        fig.add_trace(go.Scattergl(x=orig_target, y=orig_prediction, mode='markers',marker=dict(color=z), opacity=0.1),
+        fig.add_trace(go.Scattergl(x=orig_target, y=orig_prediction, mode='markers', marker=dict(color=z), opacity=0.1),
                       row=1, col=1)
         fig.add_trace(go.Scattergl(x=xline, y=xline, marker_color='rgba(0,0,0,1)'), row=1, col=1)
         fig.update_layout(xaxis_title='targets', yaxis_title='predictions')
@@ -2270,11 +2269,10 @@ class Modeller():
                                    marker_color='rgba(0,0,100,1)'), row=2, col=1)
 
         xline = np.linspace(max(min(target_density), min(predicted_density)), min(max(target_density), max(predicted_density)), 10)
-        fig.add_trace(go.Scattergl(x=target_density, y=predicted_density, mode='markers',marker=dict(color=z2), opacity = 0.1),
+        fig.add_trace(go.Scattergl(x=target_density, y=predicted_density, mode='markers', marker=dict(color=z2), opacity=0.1),
                       row=1, col=2)
         fig.add_trace(go.Scattergl(x=xline, y=xline, marker_color='rgba(0,0,0,1)'), row=1, col=2)
         fig.update_layout(xaxis_title='targets', yaxis_title='predictions')
-
 
         fig.add_trace(go.Histogram(x=target_density - predicted_density,
                                    histnorm='probability density',
@@ -2305,7 +2303,6 @@ class Modeller():
         if config.machine == 'local':
             fig.show()
 
-
         '''
         Error correlates
         '''
@@ -2330,8 +2327,8 @@ class Modeller():
         g_sort_inds = np.argsort(g_loss_correlations)
         g_loss_correlations = g_loss_correlations[g_sort_inds]
         features_sorted = [features[i] for i in g_sort_inds]
-        features_sorted_cleaned_i = [feat.replace('molecule','mol') for feat in features_sorted]
-        features_sorted_cleaned = [feat.replace('crystal','crys') for feat in features_sorted_cleaned_i]
+        features_sorted_cleaned_i = [feat.replace('molecule', 'mol') for feat in features_sorted]
+        features_sorted_cleaned = [feat.replace('crystal', 'crys') for feat in features_sorted_cleaned_i]
 
         fig = go.Figure(go.Bar(
             y=features_sorted_cleaned,
@@ -2353,15 +2350,15 @@ class Modeller():
 
     def nice_scoring_plots(self, config):
         test_epoch_stats_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\discriminator_713_test_epoch_stats_dict.npy', allow_pickle=True).item()
-        #extra_test_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_extra_test_dict.npy', allow_pickle=True).item()
+        # extra_test_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_extra_test_dict.npy', allow_pickle=True).item()
         extra_test_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\BT_plus_test_reevaluation.npy', allow_pickle=True).item()
 
         tracking_features = test_epoch_stats_dict['tracking features']
         identifiers_list = extra_test_dict['identifiers']
         score_correlations_dict, rdf_full_distance_dict, rdf_inter_distance_dict, \
-        scores_dict, all_identifiers, blind_test_targets, target_identifiers, \
-        target_identifiers_inds, BT_target_scores, BT_submission_scores, \
-        BT_scores_dists, BT_balanced_dist, vdW_penalty_dict, tracking_features_dict = \
+            scores_dict, all_identifiers, blind_test_targets, target_identifiers, \
+            target_identifiers_inds, BT_target_scores, BT_submission_scores, \
+            BT_scores_dists, BT_balanced_dist, vdW_penalty_dict, tracking_features_dict = \
             self.process_discriminator_evaluation_data(config, extra_test_dict,
                                                        test_epoch_stats_dict, None, size_normed_score=False)
 
@@ -2440,9 +2437,9 @@ class Modeller():
         all_vdws = np.concatenate((vdW_penalty_dict['Test Real'], vdW_penalty_dict['Test Randn'], vdW_penalty_dict['Test Distorted']))
         all_scores_i = np.concatenate((scores_dict['Test Real'], scores_dict['Test Randn'], scores_dict['Test Distorted']))
 
-        rrange = np.logspace(3,0,len(viridis))
-        cscale = [[1/rrange[i], viridis[i]] for i in range(len(rrange))]
-        cscale[0][0]=0
+        rrange = np.logspace(3, 0, len(viridis))
+        cscale = [[1 / rrange[i], viridis[i]] for i in range(len(rrange))]
+        cscale[0][0] = 0
         # colorscale = [
         #     [0, viridis[0]],
         #     [1. / 1000000, viridis[2]],
@@ -2723,7 +2720,6 @@ class Modeller():
         # fig.add_trace(go.Scattergl(x=xline, y=yline, name=f'All Targets R={linreg_result.rvalue:.3f}'), row=2, col=4)
         # fig.update_xaxes(range=[-5, clip], row=2, col=4)
 
-
         fig.update_layout(width=1000, height=500)
         fig.layout.margin = layout.margin
         fig.layout.margin.b = 60
@@ -2884,9 +2880,9 @@ class Modeller():
         g_sort_inds = np.argsort(g_loss_correlations)
         g_loss_correlations = g_loss_correlations[g_sort_inds]
         features_sorted = [features[i] for i in g_sort_inds]
-        features_sorted_cleaned_i = [feat.replace('molecule','mol') for feat in features_sorted]
-        features_sorted_cleaned_ii = [feat.replace('crystal','crys') for feat in features_sorted_cleaned_i]
-        features_sorted_cleaned = [feat.replace('mol atom heavier than','>') for feat in features_sorted_cleaned_ii]
+        features_sorted_cleaned_i = [feat.replace('molecule', 'mol') for feat in features_sorted]
+        features_sorted_cleaned_ii = [feat.replace('crystal', 'crys') for feat in features_sorted_cleaned_i]
+        features_sorted_cleaned = [feat.replace('mol atom heavier than', '>') for feat in features_sorted_cleaned_ii]
 
         functional_group_dict = {
             'NH0': 'tert amine',
@@ -2901,7 +2897,7 @@ class Modeller():
         for feat in features_sorted_cleaned:
             for func in functional_group_dict.keys():
                 if func in feat:
-                    feat = feat.replace(func,functional_group_dict[func])
+                    feat = feat.replace(func, functional_group_dict[func])
             ff.append(feat)
         features_sorted_cleaned = ff
 
@@ -2919,7 +2915,7 @@ class Modeller():
             marker=dict(color='rgba(100,0,0,1)')
         ), row=1, col=1)
         fig.add_trace(go.Bar(
-            y=[feat.replace('mol ', '').replace('fraction','') for feat in features_sorted_cleaned if 'has' not in feat and 'fraction' in feat],
+            y=[feat.replace('mol ', '').replace('fraction', '') for feat in features_sorted_cleaned if 'has' not in feat and 'fraction' in feat],
             x=[g for i, (feat, g) in enumerate(g_loss_dict.items()) if 'has' not in feat and 'fraction' in feat],
             orientation='h',
             text=np.asarray([g for i, (feat, g) in enumerate(g_loss_dict.items()) if 'has' not in feat and 'fraction' in feat]).astype('float16'),
@@ -3102,9 +3098,9 @@ class Modeller():
         aa = 1
         identifiers_list = extra_test_dict['identifiers']
         score_correlations_dict, rdf_full_distance_dict, rdf_inter_distance_dict, \
-        scores_dict, all_identifiers, blind_test_targets, target_identifiers, \
-        target_identifiers_inds, BT_target_scores, BT_submission_scores, \
-        BT_scores_dists, BT_balanced_dist, vdW_penalty_dict, tracking_features_dict = \
+            scores_dict, all_identifiers, blind_test_targets, target_identifiers, \
+            target_identifiers_inds, BT_target_scores, BT_submission_scores, \
+            BT_scores_dists, BT_balanced_dist, vdW_penalty_dict, tracking_features_dict = \
             self.process_discriminator_evaluation_data(config, extra_test_dict, test_epoch_stats_dict, train_epoch_stats_dict)
 
         self.layout = go.Layout(
@@ -3183,9 +3179,9 @@ class Modeller():
         S2. Scoring score correlates
         '''
 
-        #regression_test_epoch_stats_dict = np.load('C:/Users\mikem\Desktop\CSP_runs/good_regression_test_epoch_stats_dict.npy', allow_pickle=True).item()
-        #self.nice_regression_plots(config, regression_test_epoch_stats_dict)
-        #del regression_test_epoch_stats_dict
+        # regression_test_epoch_stats_dict = np.load('C:/Users\mikem\Desktop\CSP_runs/good_regression_test_epoch_stats_dict.npy', allow_pickle=True).item()
+        # self.nice_regression_plots(config, regression_test_epoch_stats_dict)
+        # del regression_test_epoch_stats_dict
 
         self.nice_scoring_plots(config)
 
@@ -3363,16 +3359,17 @@ class Modeller():
         wandb.log({'BT target score std': np.std(BT_target_scores)})
 
         return score_correlations_dict, rdf_full_distance_dict, rdf_inter_distance_dict, scores_dict, \
-               all_identifiers, blind_test_targets, target_identifiers, target_identifiers_inds, \
-               BT_target_scores, BT_submission_scores, BT_scores_dists, BT_balanced_dist, \
-               vdW_penalty_dict, tracking_features_dict
+            all_identifiers, blind_test_targets, target_identifiers, target_identifiers_inds, \
+            BT_target_scores, BT_submission_scores, BT_scores_dists, BT_balanced_dist, \
+            vdW_penalty_dict, tracking_features_dict
 
     def violin_scores_plot(self, all_identifiers, scores_dict, target_identifiers_inds):
         '''
         prep violin figure colors
         '''
         lens = [len(val) for val in all_identifiers.values()]
-        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), np.count_nonzero(list(target_identifiers_inds.values()))), colortype='rgb')
+        targets_list = list(target_identifiers_inds.values())
+        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), sum([1 for ll in targets_list if ll != []])), colortype='rgb')
 
         plot_color_dict = {}
         plot_color_dict['Train Real'] = ('rgb(250,50,50)')  # train
@@ -3415,8 +3412,10 @@ class Modeller():
         '''
         prep violin figure colors
         '''
+
         lens = [len(val) for val in all_identifiers.values()]
-        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), np.count_nonzero(list(target_identifiers_inds.values()))), colortype='rgb')
+        targets_list = list(target_identifiers_inds.values())
+        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), sum([1 for ll in targets_list if ll != []])), colortype='rgb')
 
         plot_color_dict = {}
         plot_color_dict['Train Real'] = ('rgb(250,50,50)')  # train
@@ -4021,13 +4020,15 @@ class Modeller():
         d_optimizer, d_lr = set_lr(d_schedulers, d_optimizer, config.discriminator.lr_schedule,
                                    config.discriminator.learning_rate, config.discriminator.max_lr, d_err_tr, d_hit_max_lr)
         d_learning_rate = d_optimizer.param_groups[0]['lr']
-        if d_learning_rate >= config.discriminator.max_lr: d_hit_max_lr = True
+        if d_learning_rate >= config.discriminator.max_lr:
+            d_hit_max_lr = True
 
         # update learning rate
         g_optimizer, g_lr = set_lr(g_schedulers, g_optimizer, config.generator.lr_schedule,
                                    config.generator.learning_rate, config.generator.max_lr, g_err_tr, g_hit_max_lr)
         g_learning_rate = g_optimizer.param_groups[0]['lr']
-        if g_learning_rate >= config.generator.max_lr: g_hit_max_lr = True
+        if g_learning_rate >= config.generator.max_lr:
+            g_hit_max_lr = True
 
         print(f"Learning rates are d={d_lr:.5f}, g={g_lr:.5f}")
 
@@ -4055,7 +4056,7 @@ class Modeller():
         temperature
         overall distribution
         '''
-        #if False:
+        # if False:
         # files = [
         #     'C:/Users\mikem\Desktop\CSP_runs\sampling_1/sampling_output_run_901.npy',
         #     'C:/Users\mikem\Desktop\CSP_runs\sampling_1/sampling_output_run_902.npy',
@@ -4070,7 +4071,7 @@ class Modeller():
             'D:\sampling_2/sampling_output_run_917.npy',
             'D:\sampling_2/sampling_output_run_918.npy'
         ]
-        #sampling_dict = np.load(files[0],allow_pickle=True).item()
+        # sampling_dict = np.load(files[0],allow_pickle=True).item()
         layout = go.Layout(
             margin=go.layout.Margin(
                 l=0,  # left margin
@@ -4093,10 +4094,10 @@ class Modeller():
         fig.add_trace(go.Scattergl(x=np.arange(num_iters), y=np.mean(np.log10(sampling_dict['temperature']), axis=0)), col=2, row=2)
         fig.update_layout(showlegend=False)
         fig.update_yaxes(range=[-1, 1], row=1, col=2)
-        fig.update_yaxes(range=[-2,0],row=1,col=3)
-        fig.update_yaxes(range=[-16,16],row=1,col=1)
+        fig.update_yaxes(range=[-2, 0], row=1, col=3)
+        fig.update_yaxes(range=[-16, 16], row=1, col=1)
         fig.layout.margin = layout.margin
-        #fig.write_image('../paper1_figs/sampling_telemetry_summary.png')
+        # fig.write_image('../paper1_figs/sampling_telemetry_summary.png')
         wandb.log({'Sampling Telemetry Summary': fig})
         if self.config.machine == 'local':
             import plotly.io as pio
@@ -4152,7 +4153,7 @@ class Modeller():
 
         fig.layout.margin = layout.margin
         fig.update_layout(title=crystal_identifier)
-        #fig.write_image('../paper1_figs/sampling_scores.png')
+        # fig.write_image('../paper1_figs/sampling_scores.png')
         wandb.log({'Sampling Scores': fig})
         if self.config.machine == 'local':
             import plotly.io as pio
@@ -4160,7 +4161,6 @@ class Modeller():
             fig.show()
 
         aa = 1
-
 
         '''
         full telemetry
