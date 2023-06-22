@@ -568,6 +568,9 @@ class Modeller():
 
                                         np.save(f'../{config.run_num}_extra_test_dict', extra_test_epoch_stats_dict)  # save
                                         np.save(f'../{config.run_num}_test_epoch_stats_dict', test_epoch_stats_dict)
+                                        self.nice_scoring_plots(self.config,
+                                                                test_path=f'../{config.run_num}_test_epoch_stats_dict.npy',
+                                                                extra_test_path=f'../{config.run_num}_extra_test_dict.npy')
 
                                 else:
                                     extra_test_epoch_stats_dict = None
@@ -2348,10 +2351,17 @@ class Modeller():
 
         return None
 
-    def nice_scoring_plots(self, config):
-        test_epoch_stats_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\discriminator_713_test_epoch_stats_dict.npy', allow_pickle=True).item()
+    def nice_scoring_plots(self, config, test_path=None, extra_test_path=None):
+        if test_path is None:
+            test_epoch_stats_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\discriminator_713_test_epoch_stats_dict.npy', allow_pickle=True).item()
+        else:
+            test_epoch_stats_dict = np.load(test_path, allow_pickle=True).item()
+
         # extra_test_dict = np.load('C:/Users\mikem\Desktop\CSP_runs\discriminator_713_extra_test_dict.npy', allow_pickle=True).item()
-        extra_test_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\BT_plus_test_reevaluation.npy', allow_pickle=True).item()
+        if extra_test_path is None:
+            extra_test_dict = np.load(r'C:\Users\mikem\crystals\CSP_runs\BT_plus_test_reevaluation.npy', allow_pickle=True).item()
+        else:
+            extra_test_dict = np.load(extra_test_path, allow_pickle=True).item()
 
         tracking_features = test_epoch_stats_dict['tracking features']
         identifiers_list = extra_test_dict['identifiers']
@@ -2401,7 +2411,9 @@ class Modeller():
         4. true-false model scores distribution
         '''
         lens = [len(val) for val in all_identifiers.values()]
-        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), np.count_nonzero(list(target_identifiers_inds.values()))), colortype='rgb')
+        targets_list = list(target_identifiers_inds.values())
+        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), sum([1 for ll in targets_list if ll != []])), colortype='rgb')
+
 
         plot_color_dict = {}
         plot_color_dict['Test Real'] = ('rgb(250,150,50)')  # test
@@ -2481,7 +2493,9 @@ class Modeller():
         '''
 
         lens = [len(val) for val in all_identifiers.values()]
-        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), np.count_nonzero(list(target_identifiers_inds.values()))), colortype='rgb')
+        targets_list = list(target_identifiers_inds.values())
+        colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), sum([1 for ll in targets_list if ll != []])), colortype='rgb')
+
 
         plot_color_dict = {}
         plot_color_dict['Train Real'] = ('rgb(250,50,50)')  # train
@@ -2603,6 +2617,20 @@ class Modeller():
         fig.update_layout(width=200)
         fig.layout.margin = layout.margin
         fig.write_image('../paper1_figs/scores_separation_table.png')
+        fig.update_layout(title=dict(text="Raw Scores Fractions"))
+        if config.machine == 'local':
+            fig.show()
+
+
+        fig = go.Figure(data=go.Table(
+            header=dict(values=['CSD Test Quantile', 'Fraction of Submissions']),
+            cells=dict(values=[list(normed_submissions_fraction_below_csd_quantile.keys()),
+                               list(normed_submissions_fraction_below_csd_quantile.values()),
+                               ], format=[".3", ".3"])))
+        fig.update_layout(width=200)
+        fig.layout.margin = layout.margin
+        fig.write_image('../paper1_figs/normed_scores_separation_table.png')
+        fig.update_layout(title=dict(text="Normed Scores Fractions"))
         if config.machine == 'local':
             fig.show()
 
