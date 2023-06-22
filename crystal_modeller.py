@@ -2487,6 +2487,7 @@ class Modeller():
         fig.write_image('../paper1_figs/real_vs_fake_scores.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Real vs. Fake Scores":fig})
 
         '''
         5. BT scores distributions w aggregate inset
@@ -2495,7 +2496,6 @@ class Modeller():
         lens = [len(val) for val in all_identifiers.values()]
         targets_list = list(target_identifiers_inds.values())
         colors = n_colors('rgb(250,50,5)', 'rgb(5,120,200)', max(np.count_nonzero(lens), sum([1 for ll in targets_list if ll != []])), colortype='rgb')
-
 
         plot_color_dict = {}
         plot_color_dict['Train Real'] = ('rgb(250,50,50)')  # train
@@ -2595,6 +2595,7 @@ class Modeller():
         fig.write_image('../paper1_figs/bt_submissions_distribution.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice BT Submissions Distribution": fig})
 
         '''
         7. Table of BT separation statistics
@@ -2620,7 +2621,7 @@ class Modeller():
         fig.update_layout(title=dict(text="Raw Scores Fractions"))
         if config.machine == 'local':
             fig.show()
-
+        wandb.log({"Nice Scores Separation Table": fig})
 
         fig = go.Figure(data=go.Table(
             header=dict(values=['CSD Test Quantile', 'Fraction of Submissions']),
@@ -2633,6 +2634,7 @@ class Modeller():
         fig.update_layout(title=dict(text="Normed Scores Fractions"))
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Normed Scores Separation Table": fig})
 
         '''
         8. Functional group analysis
@@ -2699,6 +2701,7 @@ class Modeller():
         fig.write_image('../paper1_figs/functional_group_scores.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Functional Group Scores": fig})
 
         '''
         9. Score vs. EMD on BT submissions
@@ -2755,6 +2758,7 @@ class Modeller():
         fig.write_image('../paper1_figs/scores_vs_emd.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Scores vs EMD": fig})
 
         '''
         10. Interesting Group-wise analysis
@@ -2837,6 +2841,7 @@ class Modeller():
         fig.write_image('../paper1_figs/interesting_groups.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Interesting Groups": fig})
 
         '''
         S1. All group-wise analysis
@@ -2882,6 +2887,7 @@ class Modeller():
             fig.write_image(f'../paper1_figs/groupwise_analysis_{i}.png')
             if config.machine == 'local':
                 fig.show()
+            wandb.log({f"Nice Groupwise Analysis {i}": fig})
 
         '''
         S2.  score correlates
@@ -2977,6 +2983,7 @@ class Modeller():
         fig.write_image('../paper1_figs/scores_correlates.png')
         if config.machine == 'local':
             fig.show()
+        wandb.log({"Nice Scores Correlates": fig})
 
         aa = 1
 
