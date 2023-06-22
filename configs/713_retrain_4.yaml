@@ -4,7 +4,7 @@ device: "cuda"
 skip_run_init: False
 explicit_run_enumeration: True
 skip_saving_and_loading: True
-run_num: 2
+run_num: 4
 anomaly_detection: False
 mode: gan # 'gan' or 'regression' or 'diagnostic'
 gan_loss: standard #wasserstein # standard #distance
@@ -20,7 +20,7 @@ train_discriminator_on_noise: True
 generator_noise_level: -1
 generator_similarity_penalty: 0
 cut_max_prob_training_after: 1000
-extra_test_period: 2
+extra_test_period: 5
 sample_after_training: False
 extra_test_set_paths: [ '/scratch/mk8347/csd_runs/datasets/blind_test_5_dataset',
                         '/scratch/mk8347/csd_runs/datasets/blind_test_6_dataset',
