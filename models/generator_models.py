@@ -26,6 +26,8 @@ class crystal_generator(nn.Module):
         '''
         conditioning model
         '''
+        torch.manual_seed(config.seeds.model)
+
         if config.generator.conditioning_mode == 'graph model':  # molecular graph model
             self.conditioner = molecule_graph_model(
                 dataDims,

@@ -2636,6 +2636,9 @@ class Modeller():
             fig.show()
         wandb.log({"Nice Normed Scores Separation Table": fig})
 
+        wandb.log({"Scores Separation": submissions_fraction_below_csd_quantile})
+        wandb.log({"Normed Scores Separation": normed_submissions_fraction_below_csd_quantile})
+
         '''
         8. Functional group analysis
         '''
