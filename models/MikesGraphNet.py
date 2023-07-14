@@ -15,6 +15,7 @@ from torch_scatter import scatter
 from torch_sparse import SparseTensor
 import torch_geometric.nn as gnn
 from models.asymmetric_radius_graph import asymmetric_radius_graph
+from models.components import general_MLP
 
 
 def real_sph_harm(k, zero_m_only=True, spherical_coordinates=True):
@@ -126,8 +127,20 @@ class MikesGraphNet(torch.nn.Module):
             for _ in range(num_blocks)
         ])
 
+        # self.fc_blocks = torch.nn.ModuleList([
+        #     FCBlock(hidden_channels, norm, dropout, activation)
+        #     for _ in range(num_blocks)
+        # ])
         self.fc_blocks = torch.nn.ModuleList([
-            FCBlock(hidden_channels, norm, dropout, activation)
+            general_MLP(
+                layers=1,
+                filters=hidden_channels,
+                input_dim=hidden_channels,
+                output_dim=hidden_channels,
+                activation=activation,
+                norm=norm,
+                dropout=dropout,
+            )
             for _ in range(num_blocks)
         ])
 

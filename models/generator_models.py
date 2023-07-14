@@ -6,7 +6,9 @@ from nflib.flows import Invertible1x1Conv
 from nflib.spline_flows import NSF_CL
 from torch.distributions import MultivariateNormal, Uniform
 import itertools
-from models.torch_models import molecule_graph_model, Normalization, ActNorm, general_MLP, independent_gaussian_model
+from models.torch_models import molecule_graph_model, independent_gaussian_model
+from models.components import general_MLP, Normalization
+from nflib.flows import ActNorm
 
 
 class crystal_generator(nn.Module):
