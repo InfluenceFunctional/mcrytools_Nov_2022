@@ -2,9 +2,11 @@
 import torch_geometric.nn as gnn
 from models.MikesGraphNet import MikesGraphNet
 import sys
+import torch.nn as nn
+import torch
 
 from models.components import general_MLP
-from nflib.spline_flows import *
+#from nflib.spline_flows import *
 from torch.distributions import MultivariateNormal
 from models.asymmetric_radius_graph import asymmetric_radius_graph
 from utils import parallel_compute_rdf_torch
