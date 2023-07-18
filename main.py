@@ -129,8 +129,8 @@ def add_args(parser):
     parser.add_argument('--history', type=int, default=5)
     parser.add_argument('--min_batch_size', type=int, default=50)
     parser.add_argument('--max_batch_size', type=int, default=10000)
-    add_bool_arg(parser, 'auto_batch_sizing', default=True)  # whether to densely connect dimenet outputs
-    parser.add_argument('--auto_batch_reduction', type=float, default=0.2)  # leeway factor to reduce batch size at end of auto-sizing run
+    add_bool_arg(parser, 'grow_batch_size', default=True)  # whether to densely connect dimenet outputs
+    parser.add_argument('--batch_growth_increment', type=float, default=0.05)
     parser.add_argument('--gradient_norm_clip', type=float, default=1)
     add_bool_arg(parser, 'anomaly_detection', default=False)
 
@@ -138,8 +138,8 @@ def add_args(parser):
     update_args2config(args2config, 'history')
     update_args2config(args2config, 'min_batch_size')
     update_args2config(args2config, 'max_batch_size')
-    update_args2config(args2config, 'auto_batch_sizing')
-    update_args2config(args2config, 'auto_batch_reduction')
+    update_args2config(args2config, 'grow_batch_size')
+    update_args2config(args2config, 'batch_growth_increment')
     update_args2config(args2config, 'gradient_norm_clip')
     update_args2config(args2config, 'anomaly_detection')
 

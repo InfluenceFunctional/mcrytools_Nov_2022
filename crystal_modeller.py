@@ -321,9 +321,9 @@ class Modeller():
         return generator, discriminator, g_optimizer, g_scheduler, d_optimizer, d_scheduler, params1, params2
 
     def get_batch_size(self, generator, discriminator, g_optimizer, d_optimizer, dataset, config):
-        '''
+        """
         try larger batches until it crashes
-        '''
+        """
         finished = False
         init_batch_size = config.min_batch_size.real
         max_batch_size = config.max_batch_size.real
@@ -476,37 +476,15 @@ class Modeller():
             # config = wandb.config # todo: wandb configs don't support nested namespaces. Sweeps are officially broken - look at the github thread
 
             config, dataset_builder = self.train_boilerplate()
-            generator, discriminator, g_optimizer, g_schedulers, d_optimizer, d_schedulers, params1, params2 \
+            generator, discriminator, \
+                g_optimizer, g_schedulers, \
+                d_optimizer, d_schedulers, \
+                params1, params2 \
                 = self.init_gan(config, self.dataDims)  # todo change this to just resetting all the parameters of existing models
 
-            # get batch size
-            if config.auto_batch_sizing:
-                print('Finding optimal batch size')
-                train_loader, test_loader, config.final_batch_size = \
-                    self.get_batch_size(generator, discriminator, g_optimizer, d_optimizer,
-                                        dataset_builder, config)
-                # reload original models
-                if config.g_model_path is not None:
-                    g_checkpoint = torch.load(config.g_model_path)
-                    if list(g_checkpoint['model_state_dict'])[0][0:6] == 'module':  # when we use dataparallel it breaks the state_dict - fix it by removing word 'module' from in front of everything
-                        for i in list(g_checkpoint['model_state_dict']):
-                            g_checkpoint['model_state_dict'][i[7:]] = g_checkpoint['model_state_dict'].pop(i)
-
-                    generator.load_state_dict(g_checkpoint['model_state_dict'])
-                    g_optimizer.load_state_dict(g_checkpoint['optimizer_state_dict'])
-
-                if config.d_model_path is not None:
-                    d_checkpoint = torch.load(config.d_model_path)
-                    if list(d_checkpoint['model_state_dict'])[0][0:6] == 'module':  # when we use dataparallel it breaks the state_dict - fix it by removing word 'module' from in front of everything
-                        for i in list(d_checkpoint['model_state_dict']):
-                            d_checkpoint['model_state_dict'][i[7:]] = d_checkpoint['model_state_dict'].pop(i)
-                    discriminator.load_state_dict(d_checkpoint['model_state_dict'])
-                    d_optimizer.load_state_dict(d_checkpoint['optimizer_state_dict'])
-
-            else:
-                print('Getting dataloaders for pre-determined batch size')
-                train_loader, test_loader = get_dataloaders(dataset_builder, config)
-                config.final_batch_size = config.max_batch_size
+            train_loader, test_loader = get_dataloaders(dataset_builder, config)
+            config.current_batch_size = config.min_batch_size
+            config.final_batch_size = config.min_batch_size
             del dataset_builder
 
             if config.extra_test_set_paths is not None:
@@ -605,14 +583,12 @@ class Modeller():
                                 config.finished = True
                                 break
 
-                            if epoch % 5 == 0:
-                                train_loader, test_loader, extra_test_loader = \
-                                    self.update_batch_size(train_loader, test_loader, extra_test_loader)
+                            train_loader, test_loader, extra_test_loader = \
+                                self.update_batch_size(train_loader, test_loader, extra_test_loader)
 
                         except RuntimeError as e:
                             if "CUDA out of memory" in str(e):  # if we do hit OOM, slash the batch size
-                                train_loader, test_loader = self.slash_batch(train_loader, test_loader)
-
+                                train_loader, test_loader = self.slash_batch(train_loader, test_loader, 0.05)
                             else:
                                 raise e
                         epoch += 1
@@ -4005,7 +3981,7 @@ class Modeller():
         else:
             submissions_dists_dict = np.load('../bt_submissions_distances.npy', allow_pickle=True).item()
 
-    def slash_batch(self, train_loader, test_loader):
+    def slash_batch(self, train_loader, test_loader, slash_fraction):
         slash_increment = max(4, int(train_loader.batch_size * 0.1))
         train_loader = update_batch_size(train_loader, train_loader.batch_size - slash_increment)
         test_loader = update_batch_size(test_loader, test_loader.batch_size - slash_increment)
@@ -4018,14 +3994,19 @@ class Modeller():
         return train_loader, test_loader
 
     def update_batch_size(self, train_loader, test_loader, extra_test_loader):
-        if train_loader.batch_size < len(train_loader.dataset):  # if the batch is smaller than the dataset
-            increment = max(4, int(train_loader.batch_size * 0.05))  # increment batch size
-            train_loader = update_batch_size(train_loader, train_loader.batch_size + increment)
-            test_loader = update_batch_size(test_loader, test_loader.batch_size + increment)
-            if self.config.extra_test_set_paths is not None:
-                extra_test_loader = update_batch_size(extra_test_loader, extra_test_loader.batch_size + increment)
-            print(f'Batch size incremented to {train_loader.batch_size}')
+        if self.config.grow_batch_size:
+            if (train_loader.batch_size < len(train_loader.dataset)) and (
+                    train_loader.batch_size < self.config.max_batch_size):  # if the batch is smaller than the dataset
+                increment = max(4,
+                                int(train_loader.batch_size * self.config.batch_growth_increment))  # increment batch size
+                train_loader = update_batch_size(train_loader, train_loader.batch_size + increment)
+                test_loader = update_batch_size(test_loader, test_loader.batch_size + increment)
+                if extra_test_loader is not None:
+                    extra_test_loader = update_batch_size(extra_test_loader,
+                                                                     extra_test_loader.batch_size + increment)
+                print(f'Batch size incremented to {train_loader.batch_size}')
         wandb.log({'batch size': train_loader.batch_size})
+        self.config.current_batch_size = train_loader.batch_size
         return train_loader, test_loader, extra_test_loader
 
     def check_model_convergence(self, metrics_dict, config, epoch):
