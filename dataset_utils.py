@@ -601,7 +601,7 @@ def get_dataloaders(dataset_builder, config, override_batch_size=None):
     if override_batch_size is not None:
         batch_size = override_batch_size
     else:
-        batch_size = config.max_batch_size
+        batch_size = config.min_batch_size
     train_size = int(0.8 * len(dataset_builder))  # split data into training and test sets
     test_size = len(dataset_builder) - train_size
 
