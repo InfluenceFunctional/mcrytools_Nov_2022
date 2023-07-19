@@ -486,6 +486,15 @@ class GCBlock(torch.nn.Module):
                 num_filters=graph_convolution_filters,
                 cutoff=5
                 , )
+        elif convolution_mode == 'TransformerConv':
+            self.GConv = gnn.TransformerConv(
+                in_channels=graph_convolution_filters,
+                out_channels=graph_convolution_filters // heads,
+                heads=heads,
+                dropout=dropout,
+                edge_dim=graph_convolution_filters,
+                beta=True,
+            )
 
     def forward(self, x, rbf, dists, edge_index, sbf=None, tbf=None, idx_kj=None, idx_ji=None):
         # convert local information into edge weights
