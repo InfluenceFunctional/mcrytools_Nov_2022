@@ -15,7 +15,7 @@ from torch_scatter import scatter
 from torch_sparse import SparseTensor
 import torch_geometric.nn as gnn
 from models.asymmetric_radius_graph import asymmetric_radius_graph
-from models.components import general_MLP
+from models.components import general_MLP, Normalization, Activation
 
 
 def real_sph_harm(k, zero_m_only=True, spherical_coordinates=True):
@@ -259,7 +259,7 @@ class MikesGraphNet(torch.nn.Module):
         for n, (convolution, fc, global_agg) in enumerate(zip(self.interaction_blocks, self.fc_blocks, self.global_blocks)):
             if self.crystal_mode:
                 if n < (self.num_blocks - 1):  # to do this molecule-wise, we need to multiply n_repeats by Z for each crystal
-                    x = x + convolution(x, rbf, dist, edge_index, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
+                    x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
                     x[inside_inds] = x[inside_inds] + fc(x[inside_inds])  # feature-wise 1D convolution on only relevant atoms
                     for ii in range(len(ptr) - 1):  # for each crystal
                         x[ptr[ii]:ptr[ii + 1], :] = x[inside_inds[inside_batch == ii]].repeat(n_repeats[ii], 1)  # copy the first unit cell to all periodic images
@@ -268,16 +268,16 @@ class MikesGraphNet(torch.nn.Module):
                     dist_inter, rbf_inter, sbf_inter, tbf_inter, idx_kj_inter, idx_ji_inter = \
                         self.get_geom_embedding(torch.cat((edge_index, edge_index_inter), dim=1), pos, num_nodes=len(z))  # compute for tracking
                     if self.crystal_convolution_type == 2:
-                        x = convolution(x, rbf_inter, dist_inter, torch.cat((edge_index, edge_index_inter), dim=1),
+                        x = convolution(x, rbf_inter, dist_inter, torch.cat((edge_index, edge_index_inter), dim=1), batch=batch,
                                         sbf=sbf_inter, tbf=tbf_inter, idx_kj=idx_kj_inter, idx_ji=idx_ji_inter)  # return only the results of the intermolecular convolution, omitting intermolecular features
                     elif self.crystal_convolution_type == 1:
-                        x = x + convolution(x, rbf, dist, edge_index, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # standard graph convolution
+                        x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # standard graph convolution
 
-                    x = x[inside_inds] + fc(x[inside_inds])  # feature-wise 1D convolution on only relevant atoms, and return only those atoms
+                    x = x[inside_inds] + fc(x[inside_inds], batch=batch[inside_inds])  # feature-wise 1D convolution on only relevant atoms, and return only those atoms
 
             else:
-                x = x + convolution(x, rbf, dist, edge_index, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
-                x = x + fc(x)  # feature-wise 1D convolution
+                x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
+                x = x + fc(x, batch=batch)  # feature-wise 1D convolution
 
         if return_dists:  # return dists, batch #, and inside/outside identity
             dist_output = {}
@@ -448,10 +448,16 @@ class EmbeddingBlock(torch.nn.Module):
 class GCBlock(torch.nn.Module):
     def __init__(self, graph_convolution_filters, hidden_channels, radial_dim, convolution_mode, spherical_dim=None, spherical=False, torsional=False, norm=None, dropout=0, heads=1):
         super(GCBlock, self).__init__()
-        self.norm = Normalization(norm, graph_convolution_filters)
-        self.node_to_message = nn.Linear(hidden_channels, graph_convolution_filters)
+        if norm == 'graph':
+            message_norm = 'layer'
+        else:
+            message_norm = norm
+
+        self.norm1 = Normalization(message_norm, graph_convolution_filters)
+        self.norm2 = Normalization(message_norm, graph_convolution_filters)
+        self.node_to_message = nn.Linear(hidden_channels, graph_convolution_filters, bias=False)
         self.message_to_node = nn.Linear(graph_convolution_filters, hidden_channels, bias=False)  # don't want to send spurious messages, though it probably doesn't matter anyway
-        self.radial_to_message = nn.Linear(radial_dim, graph_convolution_filters)
+        self.radial_to_message = nn.Linear(radial_dim, graph_convolution_filters, bias=False)
         self.convolution_mode = convolution_mode
 
         if spherical:  # need more linear layers to aggregate angular information to radial
@@ -496,33 +502,47 @@ class GCBlock(torch.nn.Module):
                 beta=True,
             )
 
-    def forward(self, x, rbf, dists, edge_index, sbf=None, tbf=None, idx_kj=None, idx_ji=None):
-        # convert local information into edge weights
+    def compute_edge_attributes(self, edge_index, rbf, idx_ji, sbf=None, tbf=None, idx_kj=None):
         if tbf is not None:
             # aggregate spherical and torsional messages to radial
-            edge_attr = self.radial_spherical_torsional_aggregation(
-                torch.cat((self.radial_to_message(rbf)[idx_kj], self.spherical_to_message(sbf), self.torsional_to_message(tbf)), dim=1))  # combine radial and spherical info in triplet space
+            edge_attr = (self.radial_torsional_aggregation(
+                torch.cat((self.radial_to_message(rbf)[idx_kj], self.torsional_to_message(tbf)), dim=1)))  # combine radial and torsional info in triplet space
             # torch.sum(torch.stack((self.radial_to_message(rbf)[idx_kj], self.spherical_to_message(sbf), self.torsional_to_message(tbf))),dim=0)
             edge_attr = scatter(edge_attr, idx_ji, dim=0)  # collect triplets back down to pair space
 
-        elif sbf is not None:
+        elif sbf is not None and tbf is None:
             # aggregate spherical messages to radial
             # rbf = self.radial_to_message(rbf)
             # sbf = self.spherical_message(sbf)
-            edge_attr = self.radial_spherical_aggregation(torch.cat((self.radial_to_message(rbf)[idx_kj], self.spherical_to_message(sbf)), dim=1))  # combine radial and spherical info in triplet space
+            edge_attr = (self.radial_spherical_aggregation(torch.cat((self.radial_to_message(rbf)[idx_kj], self.spherical_to_message(sbf)), dim=1)))  # combine radial and spherical info in triplet space
             edge_attr = scatter(edge_attr, idx_ji, dim=0)  # collect triplets back down to pair space
 
         else:  # no angular information
-            edge_attr = self.radial_to_message(rbf)
+            edge_attr = (self.radial_to_message(rbf))
+
+        # sometimes, there are different numbers edges according to spherical and radial bases (usually, trailing zeros, I think), so we force them to align
+        if len(edge_attr) != edge_index.shape[1]:
+            edge_index = edge_index[:, :len(edge_attr)]
+
+        return edge_attr, edge_index
+
+    def forward(self, x, rbf, dists, edge_index, batch=None, sbf=None, tbf=None, idx_kj=None, idx_ji=None):
+        # convert local information into edge weights
+        x = self.norm1(self.node_to_message(x), batch)
+        edge_attr, edge_index = self.compute_edge_attributes(edge_index, rbf, idx_ji, sbf, tbf, idx_kj)
+        edge_attr = self.norm2(edge_attr, batch[edge_index[0]])
 
         # convolve # todo only update nodes which will actually pass messages on this round
-        x = self.norm(self.node_to_message(x))
         if self.convolution_mode.lower() == 'schnet':
             x = self.GConv(x, edge_index, dists, edge_attr)
+        elif self.convolution_mode.lower() == 'none':
+            pass
         else:
             x = self.GConv(x, edge_index, edge_attr)
 
-        return self.message_to_node(x)
+        x = self.message_to_node(x)
+
+        return x
 
 
 class ShiftedSoftplus(torch.nn.Module):
@@ -677,35 +697,3 @@ def triplets(edge_index, num_nodes):
 
     return col, row, idx_i, idx_j, idx_k, idx_kj, idx_ji
 
-
-class Normalization(nn.Module):
-    def __init__(self, norm, filters, *args, **kwargs):
-        super().__init__()
-        if norm == 'batch':
-            self.norm = nn.BatchNorm1d(filters)
-        elif norm == 'layer':
-            self.norm = nn.LayerNorm(filters)
-        elif norm is None:
-            self.norm = nn.Identity()
-        else:
-            print(norm + " is not a valid normalization")
-            sys.exit()
-
-    def forward(self, input):
-        return self.norm(input)
-
-
-class Activation(nn.Module):
-    def __init__(self, activation_func, filters, *args, **kwargs):
-        super().__init__()
-        if activation_func.lower() == 'relu':
-            self.activation = F.relu
-        elif activation_func.lower() == 'gelu':
-            self.activation = F.gelu
-        elif activation_func.lower() == 'kernel':
-            self.activation = kernelActivation(n_basis=20, span=4, channels=filters)
-        elif activation_func.lower() == 'leaky relu':
-            self.activation = F.leaky_relu
-
-    def forward(self, input):
-        return self.activation(input)
