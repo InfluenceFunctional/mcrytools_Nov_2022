@@ -74,7 +74,7 @@ class MikesGraphNet(torch.nn.Module):
                  num_blocks: int,
                  num_spherical: int,
                  num_radial: int,
-                 atom_embedding_dims,
+                 num_atom_types=101,
                  cutoff: float = 5.0,
                  max_num_neighbors: int = 32,
                  envelope_exponent: int = 5,
@@ -89,6 +89,7 @@ class MikesGraphNet(torch.nn.Module):
                  attention_heads=1,
                  crystal_mode=False,
                  crystal_convolution_type=1,
+                 positional_embedding=False,
                  ):
         super(MikesGraphNet, self).__init__()
 
@@ -100,6 +101,7 @@ class MikesGraphNet(torch.nn.Module):
         self.crystal_mode = crystal_mode
         self.convolution_mode = graph_convolution
         self.crystal_convolution_type = crystal_convolution_type
+        self.positional_embedding = positional_embedding
 
         if radial_embedding == 'bessel':
             self.rbf = BesselBasisLayer(num_radial, cutoff, envelope_exponent)
@@ -109,8 +111,11 @@ class MikesGraphNet(torch.nn.Module):
             self.sbf = SphericalBasisLayer(num_spherical, num_radial, cutoff, envelope_exponent)
         if torsional_embedding:
             self.tbf = TorsionalEmbedding(num_spherical, num_radial, cutoff, bessel_forms=self.sbf.bessel_forms)
+        # if positional_embedding:
+        #     self.pos_embedding = PosEncoding3D(hidden_channels // 3, cutoff=10)
 
-        self.atom_embeddings = EmbeddingBlock(hidden_channels, atom_embedding_dims, num_atom_features, embedding_hidden_dimension, activation)
+        self.atom_embeddings = EmbeddingBlock(hidden_channels, num_atom_types, num_atom_features, embedding_hidden_dimension,
+                                              activation)
 
         self.interaction_blocks = torch.nn.ModuleList([
             GCBlock(graph_convolution_filters,
@@ -126,11 +131,8 @@ class MikesGraphNet(torch.nn.Module):
                     )
             for _ in range(num_blocks)
         ])
+        self.convolution_mode = graph_convolution
 
-        # self.fc_blocks = torch.nn.ModuleList([
-        #     FCBlock(hidden_channels, norm, dropout, activation)
-        #     for _ in range(num_blocks)
-        # ])
         self.fc_blocks = torch.nn.ModuleList([
             general_MLP(
                 layers=1,
@@ -144,16 +146,10 @@ class MikesGraphNet(torch.nn.Module):
             for _ in range(num_blocks)
         ])
 
-        self.global_blocks = torch.nn.ModuleList([
-            nn.Identity()
-            for _ in range(num_blocks)
-        ])
-        # self.global_blocks = torch.nn.ModuleList([
-        #     GlobalBlock(hidden_channels, graph_convolution_filters, norm, dropout, activation)
-        #     for _ in range(num_blocks)
-        # ])
-
-        self.output_layer = nn.Linear(hidden_channels, out_channels)
+        if hidden_channels != out_channels:
+            self.output_layer = nn.Linear(hidden_channels, out_channels)
+        else:
+            self.output_layer = nn.Identity()
 
     def get_geom_embedding(self, edge_index, pos, num_nodes):
         '''
@@ -164,7 +160,7 @@ class MikesGraphNet(torch.nn.Module):
         sbf, tbf, idx_kj, idx_ji = None, None, None, None
 
         if torch.sum(dist == 0) > 0:
-            zeros_at = torch.where(dist == 0) # add a little jitter, we absolutely cannot have zero distances
+            zeros_at = torch.where(dist == 0)  # add a little jitter, we absolutely cannot have zero distances
             pos[i[zeros_at]] += (torch.ones_like(pos[i[zeros_at]]) / 5)
             dist = (pos[i] - pos[j]).pow(2).sum(dim=-1).sqrt()
 
@@ -229,68 +225,82 @@ class MikesGraphNet(torch.nn.Module):
         return dist, self.rbf(dist), sbf, tbf, idx_kj, idx_ji
 
     def forward(self, z, pos, batch, ptr, ref_mol_inds=None, return_dists=False, n_repeats=None):
-        """"""
-        if self.crystal_mode:
+        # graph model starts here
+        x = self.atom_embeddings(z)  # embed atomic numbers & compute initial atom-wise feature vector # todo develop a crystal mode (may or may not actually be more efficient)
+
+        if self.crystal_mode:  # assumes input with inside-outside structure, and enforces periodicity after each convolution
             inside_inds = torch.where(ref_mol_inds == 0)[0]
             outside_inds = torch.where(ref_mol_inds == 1)[0]  # atoms which are not in the asymmetric unit but which we will convolve - pre-excluding many from outside the cutoff
             inside_batch = batch[inside_inds]  # get the feature vectors we want to repeat
-            n_repeats = [int(torch.sum(batch == ii) / torch.sum(inside_batch == ii)) for ii in range(len(ptr) - 1)]
+            n_repeats = [int(torch.sum(batch == ii) / torch.sum(inside_batch == ii)) for ii in range(len(ptr) - 1)]  # number of molecules in convolution region
+
             # intramolecular edges
             edge_index = asymmetric_radius_graph(pos, batch=batch, r=self.cutoff,  # intramolecular interactions - stack over range 3 convolutions
                                                  max_num_neighbors=self.max_num_neighbors, flow='source_to_target',
                                                  inside_inds=inside_inds, convolve_inds=inside_inds)
+
             # intermolecular edges
             edge_index_inter = asymmetric_radius_graph(pos, batch=batch, r=self.cutoff,  # extra radius for intermolecular graph convolution
                                                        max_num_neighbors=self.max_num_neighbors, flow='source_to_target',
-                                                       inside_inds=inside_inds, convolve_inds=outside_inds)  # outside_inds)
+                                                       inside_inds=inside_inds, convolve_inds=outside_inds)
 
-            if self.crystal_convolution_type == 1:
+            if self.crystal_convolution_type == 1:  # convolve with inter and intramolecular edges
                 edge_index = torch.cat((edge_index, edge_index_inter), dim=1)
 
+            dist, rbf, sbf, tbf, idx_kj, idx_ji = self.get_geom_embedding(edge_index, pos, num_nodes=len(z))
 
-        else:
-            edge_index = gnn.radius_graph(pos, r=self.cutoff, batch=batch,
-                                          max_num_neighbors=self.max_num_neighbors, flow='source_to_target')
-
-        dist, rbf, sbf, tbf, idx_kj, idx_ji = self.get_geom_embedding(edge_index, pos, num_nodes=len(z))
-
-        # graph model starts here
-        x = self.atom_embeddings(z)  # embed atomic numbers & compute initial atom-wise feature vector
-        for n, (convolution, fc, global_agg) in enumerate(zip(self.interaction_blocks, self.fc_blocks, self.global_blocks)):
-            if self.crystal_mode:
+            for n, (convolution, fc) in enumerate(zip(self.interaction_blocks, self.fc_blocks)):
                 if n < (self.num_blocks - 1):  # to do this molecule-wise, we need to multiply n_repeats by Z for each crystal
-                    x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
-                    x[inside_inds] = x[inside_inds] + fc(x[inside_inds])  # feature-wise 1D convolution on only relevant atoms
+                    x = x + convolution(x, rbf, dist, edge_index, batch, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
+
+                    x[inside_inds] = x[inside_inds] + fc(x[inside_inds], batch=batch[inside_inds])  # feature-wise 1D convolution on only relevant atoms, FC includes residual
+
                     for ii in range(len(ptr) - 1):  # for each crystal
                         x[ptr[ii]:ptr[ii + 1], :] = x[inside_inds[inside_batch == ii]].repeat(n_repeats[ii], 1)  # copy the first unit cell to all periodic images
 
-                else:  # on the final convolutional block, do not broadcast the reference cell, and include intermolecular interactions
+                else:  # on the final convolutional block, do not broadcast the reference cell, and include intermolecular interactions in conv_type 2
                     dist_inter, rbf_inter, sbf_inter, tbf_inter, idx_kj_inter, idx_ji_inter = \
-                        self.get_geom_embedding(torch.cat((edge_index, edge_index_inter), dim=1), pos, num_nodes=len(z))  # compute for tracking
+                        self.get_geom_embedding(torch.cat((edge_index, edge_index_inter), dim=1), pos, num_nodes=len(z))  # compute no matter what for tracking purposes
+
                     if self.crystal_convolution_type == 2:
-                        x = convolution(x, rbf_inter, dist_inter, torch.cat((edge_index, edge_index_inter), dim=1), batch=batch,
-                                        sbf=sbf_inter, tbf=tbf_inter, idx_kj=idx_kj_inter, idx_ji=idx_ji_inter)  # return only the results of the intermolecular convolution, omitting intermolecular features
+                        x = convolution(x, rbf_inter, dist_inter, torch.cat((edge_index, edge_index_inter), dim=1), batch,
+                                        sbf=sbf_inter, tbf=tbf_inter, idx_kj=idx_kj_inter, idx_ji=idx_ji_inter)  # return only the results of the intermolecular convolution, omitting intramolecular features
+
                     elif self.crystal_convolution_type == 1:
-                        x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # standard graph convolution
+                        x = x + convolution(x, rbf, dist, edge_index, batch, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # standard graph convolution
 
-                    x = x[inside_inds] + fc(x[inside_inds], batch=batch[inside_inds])  # feature-wise 1D convolution on only relevant atoms, and return only those atoms
+                    x = x[inside_inds] + fc(x[inside_inds], batch=batch[inside_inds])  # feature-wise 1D convolution on only relevant atoms, and return only those atoms, FC includes residual
 
-            else:
-                x = x + convolution(x, rbf, dist, edge_index, batch=batch, sbf=sbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution
-                x = x + fc(x, batch=batch)  # feature-wise 1D convolution
+        else:  # isolated molecule
+            for n, (convolution, fc) in enumerate(zip(self.interaction_blocks, self.fc_blocks)):
 
-        if return_dists:  # return dists, batch #, and inside/outside identity
+                edge_index = gnn.radius_graph(pos, r=self.cutoff, batch=batch,
+                                              max_num_neighbors=self.max_num_neighbors, flow='source_to_target')  # note - requires batch be monotonically increasing
+                dist, rbf, sbf, tbf, idx_kj, idx_ji = self.get_geom_embedding(edge_index, pos, num_nodes=len(z))
+
+                # x = self.inside_norm1[n](x)
+                if self.convolution_mode != 'none':
+                    x = x + convolution(x, rbf, dist, edge_index, batch, sbf=sbf, tbf=tbf, idx_kj=idx_kj, idx_ji=idx_ji)  # graph convolution - residual is already inside the conv operator
+
+                x = fc(x, batch=batch)  # feature-wise 1D convolution, FC includes residual and norm
+
+        if return_dists:  # return dists, batch #, and inside/outside identifier, and atomic number
             dist_output = {}
             dist_output['intramolecular dist'] = dist
             dist_output['intramolecular dist batch'] = batch[edge_index[0]]
+            dist_output['intramolecular dist atoms'] = [z[edge_index[0], 0].long(), z[edge_index[1], 0].long()]
+            dist_output['intramolecular dist inds'] = edge_index
             if self.crystal_mode:
-                dist_output['intermolecular dist'] = dist_inter
+                dist_output['intermolecular dist'] = (pos[edge_index_inter[0]] - pos[edge_index_inter[1]]).pow(2).sum(dim=-1).sqrt()
                 dist_output['intermolecular dist batch'] = batch[edge_index_inter[0]]
+                dist_output['intermolecular dist atoms'] = [z[edge_index_inter[0], 0].long(), z[edge_index_inter[1], 0].long()]
+                dist_output['intermolecular dist inds'] = edge_index_inter
 
-        out = self.output_layer(x)
-        assert torch.sum(torch.isnan(out)) == 0
+        # out = self.output_layer(x)
+        # assert torch.sum(torch.isnan(out)) == 0
 
-        return out, dist_output if return_dists else None
+        return self.output_layer(x), dist_output if return_dists else None
+
 
 
 class SphericalBasisLayer(torch.nn.Module):
@@ -427,13 +437,11 @@ class GaussianEmbedding(torch.nn.Module):
 
 
 class EmbeddingBlock(torch.nn.Module):
-    def __init__(self, hidden_channels, embedding_size, num_atom_features, embedding_dimension, activation='gelu'):
+    def __init__(self, hidden_channels, num_atom_types, num_atom_features, atom_type_embedding_dimension, activation='gelu'):
         super(EmbeddingBlock, self).__init__()
         self.num_embeddings = 1
-        for key in embedding_size.keys():
-            self.embeddings = nn.Embedding(int(embedding_size[key]), embedding_dimension)
-        self.linear = nn.Linear(embedding_dimension + num_atom_features - self.num_embeddings, hidden_channels)
-        self.activation = Activation(activation, hidden_channels)
+        self.embeddings = nn.Embedding(num_atom_types + 1, atom_type_embedding_dimension)
+        self.linear = nn.Linear(atom_type_embedding_dimension + num_atom_features - self.num_embeddings, hidden_channels)
 
     def forward(self, x):
         if x.dim() == 1:
@@ -442,8 +450,7 @@ class EmbeddingBlock(torch.nn.Module):
         embedding = self.embeddings(x[:, 0].long())
         concat_vec = torch.cat([embedding, x[:, self.num_embeddings:]], dim=-1)
 
-        return self.activation(self.linear(concat_vec))
-
+        return self.linear(concat_vec)
 
 class GCBlock(torch.nn.Module):
     def __init__(self, graph_convolution_filters, hidden_channels, radial_dim, convolution_mode, spherical_dim=None, spherical=False, torsional=False, norm=None, dropout=0, heads=1):
@@ -462,14 +469,15 @@ class GCBlock(torch.nn.Module):
 
         if spherical:  # need more linear layers to aggregate angular information to radial
             assert spherical_dim is not None, "Spherical information must have a dimension != 0 for spherical message aggregation"
-            self.spherical_to_message = nn.Linear(radial_dim * spherical_dim, graph_convolution_filters)
-            self.radial_spherical_aggregation = nn.Linear(graph_convolution_filters * 2, graph_convolution_filters)  # torch.add  # could also do dot
+            self.spherical_to_message = nn.Linear(radial_dim * spherical_dim, graph_convolution_filters, bias=False)
+            if not torsional:
+                self.radial_spherical_aggregation = nn.Linear(graph_convolution_filters * 2, graph_convolution_filters, bias=False)  # torch.add  # could also do dot
         if torsional:
             assert spherical
-            self.torsional_to_message = nn.Linear(spherical_dim * spherical_dim * radial_dim, graph_convolution_filters)
-            self.radial_spherical_torsional_aggregation = nn.Linear(graph_convolution_filters * 3, graph_convolution_filters)  # torch.add  # could also do dot
+            self.torsional_to_message = nn.Linear(spherical_dim * spherical_dim * radial_dim, graph_convolution_filters, bias=False)
+            self.radial_torsional_aggregation = nn.Linear(graph_convolution_filters * 2, graph_convolution_filters, bias=False)  # torch.add  # could also do dot
 
-        if convolution_mode == 'self attention':
+        if convolution_mode == 'GATv2':
             self.GConv = gnn.GATv2Conv(
                 in_channels=graph_convolution_filters,
                 out_channels=graph_convolution_filters // heads,
@@ -478,20 +486,6 @@ class GCBlock(torch.nn.Module):
                 add_self_loops=True,
                 edge_dim=graph_convolution_filters,
             )
-        elif convolution_mode == 'full message passing':
-            self.GConv = MPConv(
-                in_channels=graph_convolution_filters,
-                out_channels=graph_convolution_filters,
-                edge_dim=graph_convolution_filters,
-            )
-        elif convolution_mode.lower() == 'schnet':  #
-            assert not spherical, 'schnet currently only works with pure radial bases'
-            self.GConv = CFConv(
-                in_channels=graph_convolution_filters,
-                out_channels=graph_convolution_filters,
-                num_filters=graph_convolution_filters,
-                cutoff=5
-                , )
         elif convolution_mode == 'TransformerConv':
             self.GConv = gnn.TransformerConv(
                 in_channels=graph_convolution_filters,
@@ -501,6 +495,24 @@ class GCBlock(torch.nn.Module):
                 edge_dim=graph_convolution_filters,
                 beta=True,
             )
+        elif convolution_mode == 'full message passing':
+            self.GConv = MPConv(
+                in_channels=graph_convolution_filters,
+                out_channels=graph_convolution_filters,
+                edge_dim=graph_convolution_filters,
+                dropout=dropout,
+                norm=None,  # can't do graph norm here
+            )
+        elif convolution_mode.lower() == 'schnet':  #
+            assert not spherical, 'schnet currently only works with pure radial bases'
+            self.GConv = CFConv(
+                in_channels=graph_convolution_filters,
+                out_channels=graph_convolution_filters,
+                num_filters=graph_convolution_filters,
+                cutoff=5
+                , )
+        elif convolution_mode == 'none':
+            self.GConv = nn.Identity()
 
     def compute_edge_attributes(self, edge_index, rbf, idx_ji, sbf=None, tbf=None, idx_kj=None):
         if tbf is not None:
@@ -526,7 +538,7 @@ class GCBlock(torch.nn.Module):
 
         return edge_attr, edge_index
 
-    def forward(self, x, rbf, dists, edge_index, batch=None, sbf=None, tbf=None, idx_kj=None, idx_ji=None):
+    def forward(self, x, rbf, dists, edge_index, batch, sbf=None, tbf=None, idx_kj=None, idx_ji=None):
         # convert local information into edge weights
         x = self.norm1(self.node_to_message(x), batch)
         edge_attr, edge_index = self.compute_edge_attributes(edge_index, rbf, idx_ji, sbf, tbf, idx_kj)

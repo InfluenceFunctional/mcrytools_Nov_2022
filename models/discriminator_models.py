@@ -2,6 +2,7 @@ import torch.nn as nn
 from models.torch_models import molecule_graph_model
 import torch
 
+
 class crystal_discriminator(nn.Module):
     def __init__(self, config, dataDims):
         '''
@@ -15,13 +16,12 @@ class crystal_discriminator(nn.Module):
             seed=config.seeds.model,
             num_atom_feats=dataDims['num atom features'] - dataDims['num crystal generation features'],
             num_mol_feats=dataDims['num mol features'] - dataDims['num crystal generation features'],
-            output_dimension=2, # 'yes' and 'no'
+            output_dimension=2,  # 'yes' and 'no'
             activation=config.discriminator.activation,
             num_fc_layers=config.discriminator.num_fc_layers,
             fc_depth=config.discriminator.fc_depth,
             fc_dropout_probability=config.discriminator.fc_dropout_probability,
             fc_norm_mode=config.discriminator.fc_norm_mode,
-            graph_model=config.discriminator.graph_model,
             graph_filters=config.discriminator.graph_filters,
             graph_convolutional_layers=config.discriminator.graph_convolution_layers,
             concat_mol_to_atom_features=True,
@@ -33,16 +33,17 @@ class crystal_discriminator(nn.Module):
             num_attention_heads=config.discriminator.num_attention_heads,
             add_spherical_basis=config.discriminator.add_spherical_basis,
             add_torsional_basis=config.discriminator.add_torsional_basis,
-            atom_embedding_size=config.discriminator.atom_embedding_size,
+            graph_embedding_size=config.discriminator.atom_embedding_size,
             radial_function=config.discriminator.radial_function,
             max_num_neighbors=config.discriminator.max_num_neighbors,
             convolution_cutoff=config.discriminator.graph_convolution_cutoff,
             crystal_mode=True,
             device=config.device,
-            crystal_convolution_type = config.discriminator.crystal_convolution_type
+            crystal_convolution_type=config.discriminator.crystal_convolution_type,
+            max_molecule_size=10, #config.max_molecule_radius,
         )
         self.crystal_features_to_ignore = config.dataDims['num crystal generation features']
 
     def forward(self, data, return_dists=False, return_latent=False):
-        data.x = data.x[:,:-self.crystal_features_to_ignore] # leave out the trailing N features, which give information on the crystal lattice
+        data.x = data.x[:, :-self.crystal_features_to_ignore]  # leave out the trailing N features, which give information on the crystal lattice
         return self.model(data, return_dists=return_dists, return_latent=return_latent)

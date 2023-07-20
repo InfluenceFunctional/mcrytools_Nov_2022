@@ -1,7 +1,5 @@
 '''Import statements'''
-import torch_geometric.nn as gnn
 from models.MikesGraphNet import MikesGraphNet
-import sys
 import torch.nn as nn
 import torch
 
@@ -9,6 +7,7 @@ from models.components import general_MLP
 #from nflib.spline_flows import *
 from torch.distributions import MultivariateNormal
 from models.asymmetric_radius_graph import asymmetric_radius_graph
+from models.global_aggregation import global_aggregation
 from utils import parallel_compute_rdf_torch
 
 
@@ -22,7 +21,6 @@ class molecule_graph_model(nn.Module):
                  fc_depth,
                  fc_dropout_probability,
                  fc_norm_mode,
-                 graph_model,
                  graph_filters,
                  graph_convolutional_layers,
                  concat_mol_to_atom_features,
@@ -34,11 +32,18 @@ class molecule_graph_model(nn.Module):
                  num_attention_heads,
                  add_spherical_basis,
                  add_torsional_basis,
-                 atom_embedding_size,
+                 graph_embedding_size,
                  radial_function,
                  max_num_neighbors,
                  convolution_cutoff,
-                 return_latent=False, crystal_mode=False, crystal_convolution_type=None, device='cuda'):
+                 max_molecule_size,
+                 return_latent=False,
+                 crystal_mode=False,
+                 crystal_convolution_type=None,
+                 positional_embedding='sph',
+                 atom_embedding_dims=5,
+                 device='cuda'):
+
         super(molecule_graph_model, self).__init__()
         # initialize constants and layers
         self.device = device
@@ -48,7 +53,6 @@ class molecule_graph_model(nn.Module):
         self.fc_depth = fc_depth
         self.fc_dropout_probability = fc_dropout_probability
         self.fc_norm_mode = fc_norm_mode
-        self.graph_model = graph_model
         self.graph_convolution = graph_convolution
         self.output_classes = output_dimension
         self.graph_convolution_layers = graph_convolutional_layers
@@ -68,89 +72,103 @@ class molecule_graph_model(nn.Module):
             self.n_atom_feats -= self.n_mol_feats
         self.pooling = pooling
         self.fc_norm_mode = fc_norm_mode
-        self.embedding_dim = atom_embedding_size
+        self.graph_embedding_size = graph_embedding_size
         self.crystal_mode = crystal_mode
         self.crystal_convolution_type = crystal_convolution_type
+        self.max_molecule_size = max_molecule_size
+        self.atom_embedding_dims = atom_embedding_dims  # todo clean this up
+
+        if dataDims is None:
+            self.num_atom_types = 101
+        else:
+            self.num_atom_types = list(dataDims['atom embedding dict sizes'].values())[0] + 1
 
         torch.manual_seed(seed)
 
-        if self.graph_model is not None:
-            if self.graph_model == 'mike':  # mike's net - others currently deprecated. For future, implement new convolutions in the mikenet class
-                self.graph_net = MikesGraphNet(
-                    crystal_mode=crystal_mode,
-                    crystal_convolution_type=self.crystal_convolution_type,
-                    graph_convolution_filters=self.graph_filters,
-                    graph_convolution=self.graph_convolution,
-                    out_channels=self.fc_depth,
-                    hidden_channels=self.embedding_dim,
-                    num_blocks=self.graph_convolution_layers,
-                    num_radial=self.num_radial,
-                    num_spherical=self.num_spherical,
-                    max_num_neighbors=self.max_num_neighbors,
-                    cutoff=self.graph_convolution_cutoff,
-                    activation='gelu',
-                    embedding_hidden_dimension=self.embedding_dim,
-                    num_atom_features=self.n_atom_feats,
-                    norm=self.graph_norm,
-                    dropout=self.fc_dropout_probability,
-                    spherical_embedding=self.add_spherical_basis,
-                    torsional_embedding=self.add_torsional_basis,
-                    radial_embedding=self.radial_function,
-                    atom_embedding_dims=dataDims['atom embedding dict sizes'],
-                    attention_heads=self.num_attention_heads,
-                )
-            else:
-                print(self.graph_model + ' is not a valid graph model!!')
-                sys.exit()
-        else:
-            self.graph_net = nn.Identity()
-            self.graph_filters = 0  # no accounting for dime inputs or outputs
-            self.pools = nn.Identity()
+        self.graph_net = MikesGraphNet(
+            crystal_mode=crystal_mode,
+            crystal_convolution_type=self.crystal_convolution_type,
+            graph_convolution_filters=self.graph_filters,
+            graph_convolution=self.graph_convolution,
+            out_channels=self.fc_depth,
+            hidden_channels=self.graph_embedding_size,
+            num_blocks=self.graph_convolution_layers,
+            num_radial=self.num_radial,
+            num_spherical=self.num_spherical,
+            max_num_neighbors=self.max_num_neighbors,
+            cutoff=self.graph_convolution_cutoff,
+            activation='gelu',
+            embedding_hidden_dimension=self.atom_embedding_dims,
+            num_atom_features=self.n_atom_feats,
+            norm=self.graph_norm,
+            dropout=self.fc_dropout_probability,
+            spherical_embedding=self.add_spherical_basis,
+            torsional_embedding=self.add_torsional_basis,
+            radial_embedding=self.radial_function,
+            num_atom_types=self.num_atom_types,
+            attention_heads=self.num_attention_heads,
+        )
 
         # initialize global pooling operation
-        if self.graph_model is not None:
-            self.global_pool = global_aggregation(self.pooling, self.fc_depth)
+        self.global_pool = global_aggregation(self.pooling, self.fc_depth,
+                                              geometric_embedding=positional_embedding,
+                                              num_radial=num_radial,
+                                              spherical_order=num_spherical,
+                                              radial_embedding=radial_function,
+                                              max_molecule_size=max_molecule_size)
 
         # molecule features FC layer
         if self.n_mol_feats != 0:
             self.mol_fc = nn.Linear(self.n_mol_feats, self.n_mol_feats)
 
         # FC model to post-process graph fingerprint
-        self.gnn_mlp = general_MLP(layers=self.num_fc_layers,
-                                   filters=self.fc_depth,
-                                   norm=self.fc_norm_mode,
-                                   dropout=self.fc_dropout_probability,
-                                   input_dim=self.fc_depth,
-                                   output_dim=self.fc_depth,
-                                   conditioning_dim=self.n_mol_feats,
-                                   seed=seed
-                                   )
-
-        self.output_fc = nn.Linear(self.fc_depth, self.output_classes, bias=False)
-
-    def forward(self, data, return_latent=False, return_dists=False):
-        extra_outputs = {}
-        if self.graph_model is not None:
-            x, dists_dict = self.graph_net(data.x[:, :self.n_atom_feats], data.pos, data.batch, ptr=data.ptr, ref_mol_inds=data.aux_ind, return_dists=return_dists)  # get atoms encoding
-            if self.crystal_mode:  # model only outputs ref mol atoms - many fewer
-                x = self.global_pool(x, data.batch[torch.where(data.aux_ind == 0)[0]])
-            else:
-                x = self.global_pool(x, data.batch)  # aggregate atoms to molecule
-
-        mol_feats = self.mol_fc(data.x[data.ptr[:-1], -self.n_mol_feats:])  # molecule features are repeated, only need one per molecule (hence data.ptr)
-
-        if self.graph_model is not None:
-            x = self.gnn_mlp(x, conditions=mol_feats)  # mix graph fingerprint with molecule-scale features
+        if self.num_fc_layers > 0:
+            self.gnn_mlp = general_MLP(layers=self.num_fc_layers,
+                               filters=self.fc_depth,
+                               norm=self.fc_norm_mode,
+                               dropout=self.fc_dropout_probability,
+                               input_dim=self.fc_depth,
+                               output_dim=self.fc_depth,
+                               conditioning_dim=self.n_mol_feats,
+                               seed=seed
+                               )
         else:
-            x = self.gnn_mlp(mol_feats)
+            self.gnn_mlp = nn.Identity()
+
+        if self.fc_depth != self.output_classes:  # only want this if we have to change the dimension
+            self.output_fc = nn.Linear(self.fc_depth, self.output_classes, bias=False)
+        else:
+            self.output_fc = nn.Identity()
+
+    def forward(self, data=None, x=None, pos=None, batch=None, ptr=None, aux_ind=None, num_graphs=None, return_latent=False, return_dists=False):
+        if data is not None:
+            x = data.x
+            pos = data.pos
+            batch = data.batch
+            aux_ind = data.aux_ind
+            ptr = data.ptr
+            num_graphs = data.num_graphs
+
+        extra_outputs = {}
+        if self.n_mol_feats > 0:
+            mol_feats = self.mol_fc(x[ptr[:-1], -self.n_mol_feats:])  # molecule features are repeated, only need one per molecule (hence data.ptr)
+        else:
+            mol_feats = None
+
+        x, dists_dict = self.graph_net(x[:, :self.n_atom_feats], pos, batch, ptr=ptr, ref_mol_inds=aux_ind, return_dists=return_dists)  # get atoms encoding
+
+        if self.crystal_mode:  # model only outputs ref mol atoms - many fewer
+            x = self.global_pool(x, pos, batch[torch.where(aux_ind == 0)[0]], output_dim=num_graphs)
+        else:
+            x = self.global_pool(x, pos, batch, output_dim=num_graphs)  # aggregate atoms to molecule
+
+        if self.num_fc_layers > 0:
+            x = self.gnn_mlp(x, conditions=mol_feats)  # mix graph fingerprint with molecule-scale features
 
         output = self.output_fc(x)
 
         if return_dists:
-            if self.graph_model is not None:
-                extra_outputs['dists dict'] = dists_dict
-            else:
-                extra_outputs['dists dict'] = None
+            extra_outputs['dists dict'] = dists_dict
         if return_latent:
             extra_outputs['latent'] = output.cpu().detach().numpy()
 
@@ -158,6 +176,7 @@ class molecule_graph_model(nn.Module):
             return output, extra_outputs
         else:
             return output
+
 
 
 class independent_gaussian_model(nn.Module):
@@ -202,40 +221,6 @@ class independent_gaussian_model(nn.Module):
 
     def score(self, samples):
         return self.prior.log_prob(samples)
-
-
-class global_aggregation(nn.Module):
-    '''
-    wrapper for several types of global aggregation functions
-    '''
-
-    def __init__(self, agg_func, filters):
-        super(global_aggregation, self).__init__()
-        self.agg_func = agg_func
-        if agg_func == 'mean':
-            self.agg = gnn.global_mean_pool
-        elif agg_func == 'sum':
-            self.agg = gnn.global_add_pool
-        elif agg_func == 'attention':
-            self.agg = gnn.GlobalAttention(nn.Sequential(nn.Linear(filters, filters), nn.LeakyReLU(), nn.Linear(filters, 1)))
-        elif agg_func == 'set2set':
-            self.agg = gnn.Set2Set(in_channels=filters, processing_steps=4)
-            self.agg_fc = nn.Linear(filters * 2, filters)  # condense to correct number of filters
-        elif agg_func == 'combo':
-            self.agg_list1 = [gnn.global_max_pool, gnn.global_mean_pool, gnn.global_add_pool]  # simple aggregation functions
-            self.agg_list2 = nn.ModuleList([gnn.GlobalAttention(nn.Sequential(nn.Linear(filters, filters), nn.LeakyReLU(), nn.Linear(filters, 1)))])  # aggregation functions requiring parameters
-            self.agg_fc = nn.Linear(filters * (len(self.agg_list1) + len(self.agg_list2)), filters)  # condense to correct number of filters
-
-    def forward(self, x, batch):
-        if self.agg_func == 'set2set':
-            x = self.agg(x, batch)
-            return self.agg_fc(x)
-        elif self.agg_func == 'combo':
-            output1 = [agg(x, batch) for agg in self.agg_list1]
-            output2 = [agg(x, batch) for agg in self.agg_list2]
-            return self.agg_fc(torch.cat((output1 + output2), dim=1))
-        else:
-            return self.agg(x, batch)
 
 
 def crystal_rdf(crystaldata, rrange=[0, 10], bins=100, intermolecular=False, elementwise=False, raw_density=False, atomwise=False):

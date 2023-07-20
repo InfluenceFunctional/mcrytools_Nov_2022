@@ -208,7 +208,7 @@ class Modeller():
             config.discriminator.max_lr = max_lr
         print("Initializing models for " + config.mode)
         if config.mode == 'gan':
-            generator = crystal_generator(config, dataDims)
+            generator = nn.Linear(1,1) #crystal_generator(config, dataDims)
             discriminator = crystal_discriminator(config, dataDims)
         elif config.mode == 'regression':
             generator = molecule_regressor(config, dataDims)
